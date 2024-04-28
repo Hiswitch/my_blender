@@ -7,7 +7,8 @@ import numpy as np
 from mathutils import Vector, Quaternion, Matrix
 import json
 import sys
-sys.path.append("D:/blender_project/begin/my_blender")
+dirname = os.path.abspath(os.path.dirname(__file__))
+sys.path.append(dirname)
 
 from utils.data import read_data
 
@@ -58,6 +59,41 @@ for i, color in enumerate(color_table):
         color_table[i] = tuple(map(lambda x: int(x, 16)/255., [color[:2], color[2:4], color[4:]]))
     color_table[i] = (*color_table[i], 1.0)
 
+
+def animate_by_fbx(bones, fbxdata, frame, name):
+    # ['liu_Spine', 'liu_Spine1', 'liu_Neck', 'liu_Head', 'liu_LeftShoulder', 'liu_LeftArm', 'liu_LeftForeArm', 'liu_LeftHand', 'liu_RightShoulder', 'liu_RightArm', 'liu_RightForeArm', 'liu_RightHand', 'liu_LeftUpLeg', 'liu_LeftLeg', 'liu_LeftFoot', 'liu_LeftToeBase', 'liu_RightUpLeg', 'liu_RightLeg', 'liu_RightFoot', 'liu_RightToeBase']
+    scene = bpy.context.scene
+    scene.frame_set(frame)
+    for srcname, dstname in [
+        ('LeftShoulder', 'LeftShoulder'),
+        ('LeftArm', 'LeftArm'),
+        ('RightShoulder', 'RightShoulder'),
+        ('RightArm', 'RightArm'),
+        ('LeftForeArm', 'LeftForeArm'),
+        ('RightForeArm', 'RightForeArm'),
+        ('LeftHand', 'LeftHand'),
+        ('RightHand', 'RightHand'),
+        # leg
+        ('LeftUpLeg', 'LeftUpLeg'),
+        ('RightUpLeg', 'RightUpLeg'),
+        ('LeftLeg', 'LeftLeg'),
+        ('RightLeg', 'RightLeg'),
+        ('LeftFoot', 'LeftFoot'),
+        ('RightFoot', 'RightFoot'),
+        ('LeftToeBase', 'LeftToeBase'),
+        ('RightToeBase', 'RightToeBase'),
+    ]:
+        srcname = name + '_' + srcname
+        dstname = 'mixamorig:' + dstname
+        if False:
+            bone_rotation = fbxdata[srcname].matrix_channel.to_3x3()
+            bones[dstname].rotation_quaternion = Matrix(bone_rotation).to_quaternion()
+        else:
+            bone_rotation = fbxdata[srcname].rotation_quaternion
+            bones[dstname].rotation_quaternion = bone_rotation
+        print(srcname, dstname, bone_rotation)
+        bones[dstname].keyframe_insert('rotation_quaternion', frame=frame)
+
 if __name__ == "__main__":
     parser = get_parser()
     # parser.add_argument("--source", type=str)
@@ -71,29 +107,27 @@ if __name__ == "__main__":
     args = parse_args(parser)
 
     if args.blender_type == 'debug':
-        path = 'D:/blender_project/begin/fbx_binary/'
-        filenames = sorted(glob(os.path.join(path, '*.fbx')))
-        id = str(args.id).zfill(3)
-        filename = None
-        for item in filenames:
-            if id in item:
-                filename = item
-        if filename == None:
-            print(f"There is no id: {id}")
+        path = './data/'
+        filenames = glob(os.path.join(path, f'{args.id:3d}_*.fbx'))
+        assert len(filenames) > 1, f"Cannot find the file with id: {args.id}"
+        filename = filenames[0]
         bpy.ops.import_scene.fbx(filepath=filename, automatic_bone_orientation=True, force_connect_children=True)
 
     setup()
     add_sunlight(name='Light0', location=(2., 5., 5.), rotation=(-np.pi/4, 0, 0), strength=1.)
     add_sunlight(name='Light1', location=(2., -5., 5.), rotation=(np.pi/4, 0, 0), strength=1.)
 
+    frame_num = int(bpy.data.actions[0].frame_range[1])
+    bpy.context.scene.frame_end = frame_num
     # camera = set_camera(location=(3, 0, 2.5), center=(0, 0, 1), focal=30)
     # set_camera_green(camera)
-    cam_fn = Path(args.path) / 'info' / 'cam.json'
-    f = json.load(cam_fn.open('r'))
-    cam_xyz = f['cam_xyz']
-    cam_euler = f['cam_euler']
-    cam_f = f['cam_f']
-    camera = set_camera(location=cam_xyz, rotation=cam_euler, focal=cam_f) 
+    if False:
+        cam_fn = Path(args.path) / 'info' / 'cam.json'
+        f = json.load(cam_fn.open('r'))
+        cam_xyz = f['cam_xyz']
+        cam_euler = f['cam_euler']
+        cam_f = f['cam_f']
+        camera = set_camera(location=cam_xyz, rotation=cam_euler, focal=cam_f) 
     # set_camera_green(camera)
     
 
@@ -137,7 +171,7 @@ if __name__ == "__main__":
             matname = list(bpy.data.objects[obj_name].material_slots.keys())[0]
             bpy.data.materials[matname].node_tree.nodes["Principled BSDF"].inputs[0].default_value = color_table[pid]
         character = bpy.data.objects[target_model]
-        character.location = Vector((0, -0.5, 0))
+        character.location = Vector((0, 0, 0))
         armature = bpy.data.armatures[target_model]
         armature.animation_data_clear()
         models[pid] = target_model
@@ -146,8 +180,8 @@ if __name__ == "__main__":
     # bpy.context.scene.frame_end = len(filenames)
 
     params = read_data(args.path, args.id)
-    frame_num = min(params[0]['position'].shape[0], args.end_frame)
-    bpy.context.scene.frame_end = frame_num
+    # frame_num = min(params[0]['position'].shape[0], args.end_frame)
+    # bpy.context.scene.frame_end = frame_num
 
     args.res_x = 2448
     args.res_y = 2048
@@ -161,7 +195,11 @@ if __name__ == "__main__":
     )
 
     scene = bpy.context.scene
-    offset = [-0.05, -0.55, 0]
+    offset = Vector([-0.05, -0.55, -0.5])
+    fbx_data = {
+        0: 'liu',
+        1: 'ma'
+    }
     for frame in range(frame_num):
         scene.frame_set(frame)
         print('Loading frames: ', frame)
@@ -174,12 +212,22 @@ if __name__ == "__main__":
         #     character = bpy.data.objects[models[pid]]
         #     bones = character.pose.bones
         #     animate_by_smpl(param, bones, frame, offset=offset)
-        for param in params:
-            pid = param['id']
+        for pid, name in fbx_data.items():
             character = bpy.data.objects[models[pid]]
-            bones = character.pose.bones
-            animate_by_smpl({'position': param['position'][frame], 'rotation': param['rotation'][frame]}, bones, frame, offset=offset, tpose = args.blender_type == 'tpose')
-
+            fbxdata = bpy.data.objects[name+'_Hips']
+            # set the global rotation
+            character.location = offset + fbxdata.location
+            character.rotation_euler = fbxdata.rotation_euler
+            # insert the keyframe
+            character.keyframe_insert('location', frame=frame)
+            character.keyframe_insert('rotation_euler', frame=frame)
+            animate_by_fbx(character.pose.bones, fbxdata.pose.bones, frame, name=name)
+        if False:
+            for param in params:
+                pid = param['id']
+                character = bpy.data.objects[models[pid]]
+                bones = character.pose.bones
+                animate_by_smpl({'position': param['position'][frame], 'rotation': param['rotation'][frame]}, bones, frame, offset=offset, tpose = args.blender_type == 'tpose')
 
     nFrames = bpy.context.scene.frame_end
     camera = bpy.data.objects['Camera']
