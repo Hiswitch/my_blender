@@ -90,9 +90,39 @@ def animate_by_fbx(bones, fbxdata, frame, name):
             bones[dstname].rotation_quaternion = Matrix(bone_rotation).to_quaternion()
         else:
             bone_rotation = fbxdata[srcname].rotation_quaternion
+            # bone_rotation = Vector((1, 0, 0, 0))
             bones[dstname].rotation_quaternion = bone_rotation
         print(srcname, dstname, bone_rotation)
         bones[dstname].keyframe_insert('rotation_quaternion', frame=frame)
+
+def load_xbot(mapname, pids):
+    # 预先load所有的模型进来
+    models = {}
+    for pid in pids:
+        target = mapname.get(pid, 'assets/xbot.fbx')
+        scale = 1.
+        bpy.ops.import_scene.fbx(
+            filepath=target,
+            use_manual_orientation=True,
+            use_anim=False,
+            axis_forward="Y",
+            axis_up="Z",
+            automatic_bone_orientation=True,
+            global_scale=scale
+        )
+        obj_names = [o.name for o in bpy.context.selected_objects]
+        ## e.g., ['Armature', 'Beta_Joints', 'Beta_Surface'] for `xbot.fbx`
+        # 设置joints和surface的scale
+        target_model = obj_names[0]
+        for obj_name in obj_names[1:]:
+            matname = list(bpy.data.objects[obj_name].material_slots.keys())[0]
+            bpy.data.materials[matname].node_tree.nodes["Principled BSDF"].inputs[0].default_value = color_table[pid]
+        character = bpy.data.objects[target_model]
+        character.location = Vector((0, 0, 0))
+        armature = bpy.data.armatures[target_model]
+        armature.animation_data_clear()
+        models[pid] = target_model
+    
 
 if __name__ == "__main__":
     parser = get_parser()
@@ -108,8 +138,8 @@ if __name__ == "__main__":
 
     if args.blender_type == 'debug':
         path = './data/'
-        filenames = glob(os.path.join(path, f'{args.id:3d}_*.fbx'))
-        assert len(filenames) > 1, f"Cannot find the file with id: {args.id}"
+        filenames = glob(os.path.join(path, f'{args.id:03d}_*.fbx'))
+        assert len(filenames) > 0, f"Cannot find the file with id: {args.id}"
         filename = filenames[0]
         bpy.ops.import_scene.fbx(filepath=filename, automatic_bone_orientation=True, force_connect_children=True)
 
@@ -117,7 +147,7 @@ if __name__ == "__main__":
     add_sunlight(name='Light0', location=(2., 5., 5.), rotation=(-np.pi/4, 0, 0), strength=1.)
     add_sunlight(name='Light1', location=(2., -5., 5.), rotation=(np.pi/4, 0, 0), strength=1.)
 
-    frame_num = int(bpy.data.actions[0].frame_range[1])
+    frame_num = min(int(bpy.data.actions[0].frame_range[1]), args.end_frame)
     bpy.context.scene.frame_end = frame_num
     # camera = set_camera(location=(3, 0, 2.5), center=(0, 0, 1), focal=30)
     # set_camera_green(camera)
@@ -149,32 +179,7 @@ if __name__ == "__main__":
         0: 'assets/xbot.fbx',
         1: 'assets/xbot.fbx'
     }
-    # 预先load所有的模型进来
-    models = {}
-    for pid in pids:
-        target = mapname.get(pid, 'assets/xbot.fbx')
-        scale = 1.
-        bpy.ops.import_scene.fbx(
-            filepath=target,
-            use_manual_orientation=True,
-            use_anim=False,
-            axis_forward="Y",
-            axis_up="Z",
-            automatic_bone_orientation=True,
-            global_scale=scale
-        )
-        obj_names = [o.name for o in bpy.context.selected_objects]
-        ## e.g., ['Armature', 'Beta_Joints', 'Beta_Surface'] for `xbot.fbx`
-        # 设置joints和surface的scale
-        target_model = obj_names[0]
-        for obj_name in obj_names[1:]:
-            matname = list(bpy.data.objects[obj_name].material_slots.keys())[0]
-            bpy.data.materials[matname].node_tree.nodes["Principled BSDF"].inputs[0].default_value = color_table[pid]
-        character = bpy.data.objects[target_model]
-        character.location = Vector((0, 0, 0))
-        armature = bpy.data.armatures[target_model]
-        armature.animation_data_clear()
-        models[pid] = target_model
+    models = load_xbot(mapname, pids)
     
     # filenames = sorted(glob(os.path.join(args.path, '*.json')))
     # bpy.context.scene.frame_end = len(filenames)
@@ -222,16 +227,10 @@ if __name__ == "__main__":
             character.keyframe_insert('location', frame=frame)
             character.keyframe_insert('rotation_euler', frame=frame)
             animate_by_fbx(character.pose.bones, fbxdata.pose.bones, frame, name=name)
-        if False:
-            for param in params:
-                pid = param['id']
-                character = bpy.data.objects[models[pid]]
-                bones = character.pose.bones
-                animate_by_smpl({'position': param['position'][frame], 'rotation': param['rotation'][frame]}, bones, frame, offset=offset, tpose = args.blender_type == 'tpose')
 
     nFrames = bpy.context.scene.frame_end
     camera = bpy.data.objects['Camera']
-    
+
     # 创建一个地面用来制造阴影
     plane = create_plane_blender((7, 0, 0.0), size=15)
     plane.hide_viewport = True
