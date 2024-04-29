@@ -60,7 +60,8 @@ for i, color in enumerate(color_table):
     color_table[i] = (*color_table[i], 1.0)
 
 
-def animate_by_fbx(bones, fbxdata, frame, name):
+def animate_by_fbx(bones, fbxdata, frame, 
+                   name):
     # ['liu_Spine', 'liu_Spine1', 'liu_Neck', 'liu_Head', 'liu_LeftShoulder', 'liu_LeftArm', 'liu_LeftForeArm', 'liu_LeftHand', 'liu_RightShoulder', 'liu_RightArm', 'liu_RightForeArm', 'liu_RightHand', 'liu_LeftUpLeg', 'liu_LeftLeg', 'liu_LeftFoot', 'liu_LeftToeBase', 'liu_RightUpLeg', 'liu_RightLeg', 'liu_RightFoot', 'liu_RightToeBase']
     scene = bpy.context.scene
     scene.frame_set(frame)
@@ -85,15 +86,36 @@ def animate_by_fbx(bones, fbxdata, frame, name):
     ]:
         srcname = name + '_' + srcname
         dstname = 'mixamorig:' + dstname
-        if False:
-            bone_rotation = fbxdata[srcname].matrix_channel.to_3x3()
-            bones[dstname].rotation_quaternion = Matrix(bone_rotation).to_quaternion()
+        if True:
+            bone = fbxdata[srcname]
+            if bone.parent:
+                rot = bone.parent.matrix_channel.to_3x3().inverted() @ bone.matrix_channel.to_3x3()
+            else:
+                rot = bone.matrix_channel.to_3x3()
+            axis, angle = rot.to_quaternion().to_axis_angle()
+            # rot = tgt_base_rotations[dstname] @ src_base_rotations[srcname].inverted() @ rot
+            if dstname in ['mixamorig:RightShoulder', 'mixamorig:RightArm', 'mixamorig:RightForeArm', 'mixamorig:RightHand']:
+                axis[1], axis[0] = axis[0], axis[1]
+                axis[1] *= -1
+            elif dstname in ['mixamorig:LeftShoulder', 'mixamorig:LeftArm', 'mixamorig:LeftForeArm', 'mixamorig:LeftHand']:
+                axis[1], axis[0] = axis[0], axis[1]
+                axis[2] *= -1
+            elif dstname in ['mixamorig:LeftUpLeg', 'mixamorig:RightUpLeg', \
+                             'mixamorig:LeftLeg', 'mixamorig:RightLeg']:
+                axis[1] *= -1
+                axis[2] *= -1
+            elif dstname in ['mixamorig:LeftFoot', 'mixamorig:RightFoot', 'mixamorig:LeftToeBase', 'mixamorig:RightToeBase']:
+                axis[1], axis[2] = axis[2], axis[1]
+                axis[1] *= -1
+            quaternion = Quaternion(axis, angle)
+            dstbone = bones[dstname]
+            dstbone.rotation_quaternion = quaternion
+            bones[dstname].keyframe_insert('rotation_quaternion', frame=frame)
         else:
             bone_rotation = fbxdata[srcname].rotation_quaternion
             # bone_rotation = Vector((1, 0, 0, 0))
             bones[dstname].rotation_quaternion = bone_rotation
-        print(srcname, dstname, bone_rotation)
-        bones[dstname].keyframe_insert('rotation_quaternion', frame=frame)
+            bones[dstname].keyframe_insert('rotation_quaternion', frame=frame)
 
 def load_xbot(mapname, pids):
     # 预先load所有的模型进来
@@ -122,7 +144,7 @@ def load_xbot(mapname, pids):
         armature = bpy.data.armatures[target_model]
         armature.animation_data_clear()
         models[pid] = target_model
-    
+    return models
 
 if __name__ == "__main__":
     parser = get_parser()
@@ -226,7 +248,13 @@ if __name__ == "__main__":
             # insert the keyframe
             character.keyframe_insert('location', frame=frame)
             character.keyframe_insert('rotation_euler', frame=frame)
-            animate_by_fbx(character.pose.bones, fbxdata.pose.bones, frame, name=name)
+            bpy.context.view_layer.objects.active = character
+            bpy.ops.object.mode_set(mode='POSE')
+            animate_by_fbx(character.pose.bones, fbxdata.pose.bones, frame, 
+                           name=name)
+            bpy.context.view_layer.update()
+            bpy.ops.object.mode_set(mode='OBJECT')
+
 
     nFrames = bpy.context.scene.frame_end
     camera = bpy.data.objects['Camera']
