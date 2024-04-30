@@ -19,7 +19,7 @@ from blender.geometry import (
     look_at
 )
 from blender.camera import set_extrinsic, set_intrinsic
-from blender.animation import animate_by_smpl
+from blender.animation import animate_by_motive
 from blender.setup import (
     add_sunlight,
     get_parser,
@@ -59,64 +59,6 @@ for i, color in enumerate(color_table):
         color_table[i] = tuple(map(lambda x: int(x, 16)/255., [color[:2], color[2:4], color[4:]]))
     color_table[i] = (*color_table[i], 1.0)
 
-
-def animate_by_fbx(bones, fbxdata, frame, 
-                   name):
-    # ['liu_Spine', 'liu_Spine1', 'liu_Neck', 'liu_Head', 'liu_LeftShoulder', 'liu_LeftArm', 'liu_LeftForeArm', 'liu_LeftHand', 'liu_RightShoulder', 'liu_RightArm', 'liu_RightForeArm', 'liu_RightHand', 'liu_LeftUpLeg', 'liu_LeftLeg', 'liu_LeftFoot', 'liu_LeftToeBase', 'liu_RightUpLeg', 'liu_RightLeg', 'liu_RightFoot', 'liu_RightToeBase']
-    scene = bpy.context.scene
-    scene.frame_set(frame)
-    for srcname, dstname in [
-        ('LeftShoulder', 'LeftShoulder'),
-        ('LeftArm', 'LeftArm'),
-        ('RightShoulder', 'RightShoulder'),
-        ('RightArm', 'RightArm'),
-        ('LeftForeArm', 'LeftForeArm'),
-        ('RightForeArm', 'RightForeArm'),
-        ('LeftHand', 'LeftHand'),
-        ('RightHand', 'RightHand'),
-        # leg
-        ('LeftUpLeg', 'LeftUpLeg'),
-        ('RightUpLeg', 'RightUpLeg'),
-        ('LeftLeg', 'LeftLeg'),
-        ('RightLeg', 'RightLeg'),
-        ('LeftFoot', 'LeftFoot'),
-        ('RightFoot', 'RightFoot'),
-        ('LeftToeBase', 'LeftToeBase'),
-        ('RightToeBase', 'RightToeBase'),
-    ]:
-        srcname = name + '_' + srcname
-        dstname = 'mixamorig:' + dstname
-        if True:
-            bone = fbxdata[srcname]
-            if bone.parent:
-                rot = bone.parent.matrix_channel.to_3x3().inverted() @ bone.matrix_channel.to_3x3()
-            else:
-                rot = bone.matrix_channel.to_3x3()
-            axis, angle = rot.to_quaternion().to_axis_angle()
-            # rot = tgt_base_rotations[dstname] @ src_base_rotations[srcname].inverted() @ rot
-            if dstname in ['mixamorig:RightShoulder', 'mixamorig:RightArm', 'mixamorig:RightForeArm', 'mixamorig:RightHand']:
-                axis[1], axis[0] = axis[0], axis[1]
-                axis[1] *= -1
-            elif dstname in ['mixamorig:LeftShoulder', 'mixamorig:LeftArm', 'mixamorig:LeftForeArm', 'mixamorig:LeftHand']:
-                axis[1], axis[0] = axis[0], axis[1]
-                axis[2] *= -1
-            elif dstname in ['mixamorig:LeftUpLeg', 'mixamorig:RightUpLeg', \
-                             'mixamorig:LeftLeg', 'mixamorig:RightLeg']:
-                axis[1] *= -1
-                axis[2] *= -1
-            elif dstname in ['mixamorig:LeftFoot', 'mixamorig:RightFoot', 'mixamorig:LeftToeBase', 'mixamorig:RightToeBase']:
-                axis[1], axis[2] = axis[2], axis[1]
-                axis[1] *= -1
-            quaternion = Quaternion(axis, angle)
-            dstbone = bones[dstname]
-            dstbone.rotation_quaternion = quaternion
-            bones[dstname].keyframe_insert('rotation_quaternion', frame=frame)
-        else:
-            bone_rotation = fbxdata[srcname].rotation_quaternion
-            # bone_rotation = Vector((1, 0, 0, 0))
-            bones[dstname].rotation_quaternion = bone_rotation
-            bones[dstname].keyframe_insert('rotation_quaternion', frame=frame)
-
 def load_xbot(mapname, pids):
     # 预先load所有的模型进来
     models = {}
@@ -148,18 +90,16 @@ def load_xbot(mapname, pids):
 
 if __name__ == "__main__":
     parser = get_parser()
-    # parser.add_argument("--source", type=str)
-    # parser.add_argument("--zoffset", type=float, help="offset for z axis")
-    # parser.add_argument('--retarget', action='store_true')
-    # args = parse_args(parser)
     parser.add_argument('--id', type=int, default=0)
-    parser.add_argument('--end_frame', type=int, default=100000)
+    parser.add_argument('--start_frame', type=int, default=0)
+    parser.add_argument('--end_frame', type=int, default=0)
     parser.add_argument('--blender_type', type=str, default='adj', choices=['adj', 'img', 'video', 'tpose', 'debug'])
-    # parser.add_argument("--path", type=str, default="D:\\blender_project\\begin\\fbx_export_joints_fixrot")
     args = parse_args(parser)
 
+    assert args.start_frame <= args.end_frame, f"Error: start frame: {args.start_frame} > end frame: {args.end_frame}"
+
     if args.blender_type == 'debug':
-        path = './data/'
+        path = 'D:/blender_project/begin/fbx_binary'
         filenames = glob(os.path.join(path, f'{args.id:03d}_*.fbx'))
         assert len(filenames) > 0, f"Cannot find the file with id: {args.id}"
         filename = filenames[0]
@@ -169,46 +109,34 @@ if __name__ == "__main__":
     add_sunlight(name='Light0', location=(2., 5., 5.), rotation=(-np.pi/4, 0, 0), strength=1.)
     add_sunlight(name='Light1', location=(2., -5., 5.), rotation=(np.pi/4, 0, 0), strength=1.)
 
-    frame_num = min(int(bpy.data.actions[0].frame_range[1]), args.end_frame)
-    bpy.context.scene.frame_end = frame_num
-    # camera = set_camera(location=(3, 0, 2.5), center=(0, 0, 1), focal=30)
-    # set_camera_green(camera)
-    if False:
-        cam_fn = Path(args.path) / 'info' / 'cam.json'
-        f = json.load(cam_fn.open('r'))
-        cam_xyz = f['cam_xyz']
-        cam_euler = f['cam_euler']
-        cam_f = f['cam_f']
-        camera = set_camera(location=cam_xyz, rotation=cam_euler, focal=cam_f) 
+
+    cam_fn = Path(args.path) / 'info' / 'cam.json'
+    f = json.load(cam_fn.open('r'))
+    cam_xyz = f['cam_xyz']
+    cam_euler = f['cam_euler']
+    cam_f = f['cam_f']
+    camera = set_camera(location=cam_xyz, rotation=cam_euler, focal=cam_f) 
     # set_camera_green(camera)
     
-
-    # pids = [0, 1, 2, 3, 4, 5, 6, 7, 8]
-    # mapname = {
-    #     # 0: 'assets/humanfbx/Ch13_nonPBR.fbx',
-    #     # 1: 'assets/humanfbx/Ch28_nonPBR.fbx',
-    #     # 2: 'assets/humanfbx/Ch41_nonPBR.fbx',
-    #     # 3: 'assets/humanfbx/Ch22_nonPBR.fbx',
-    #     # 4: 'assets/humanfbx/Ch33_nonPBR.fbx',
-    #     # 5: 'assets/humanfbx/Ch46_nonPBR.fbx',
-    #     # 6: 'assets/humanfbx/Remy.fbx',
-    #     # 7: 'assets/humanfbx/Kachujin G Rosales.fbx',
-    #     8: 'assets/xbot.fbx',
-    # }
-
     pids = [0, 1]
     mapname = {
         0: 'assets/xbot.fbx',
         1: 'assets/xbot.fbx'
     }
     models = load_xbot(mapname, pids)
-    
-    # filenames = sorted(glob(os.path.join(args.path, '*.json')))
-    # bpy.context.scene.frame_end = len(filenames)
 
-    params = read_data(args.path, args.id)
-    # frame_num = min(params[0]['position'].shape[0], args.end_frame)
-    # bpy.context.scene.frame_end = frame_num
+    params, frame_num = read_data(args.path, args.id)
+    print(frame_num)
+    if args.end_frame - args.start_frame + 1 > frame_num:
+        start = 0
+        end   = frame_num
+    else:
+        start = args.start_frame
+        end = args.end_frame + 1
+
+    assert end <= frame_num, f'end: {end} > frame num: {frame_num}'
+    frame_num = end - start
+    bpy.context.scene.frame_end = frame_num
 
     args.res_x = 2448
     args.res_y = 2048
@@ -222,57 +150,28 @@ if __name__ == "__main__":
     )
 
     scene = bpy.context.scene
-    offset = Vector([-0.05, -0.55, -0.5])
-    fbx_data = {
-        0: 'liu',
-        1: 'ma'
-    }
-    for frame in range(frame_num):
-        scene.frame_set(frame)
+    offset = [0, -1, 0]
+
+    for frame in range(start, end):
+        scene.frame_set(frame - start)
         print('Loading frames: ', frame)
-        # params = read_smpl(join(args.path, filename))
-        # TODO: 只兼容一个人
-        # if isinstance(params, dict):
-        #     params = params['annots']
-        # for param in params:
-        #     pid = param['id']
-        #     character = bpy.data.objects[models[pid]]
-        #     bones = character.pose.bones
-        #     animate_by_smpl(param, bones, frame, offset=offset)
-        for pid, name in fbx_data.items():
+        for param in params:
+            pid = param['id']
             character = bpy.data.objects[models[pid]]
-            fbxdata = bpy.data.objects[name+'_Hips']
-            # set the global rotation
-            character.location = offset + fbxdata.location
-            character.rotation_euler = fbxdata.rotation_euler
-            # insert the keyframe
-            character.keyframe_insert('location', frame=frame)
-            character.keyframe_insert('rotation_euler', frame=frame)
-            bpy.context.view_layer.objects.active = character
-            bpy.ops.object.mode_set(mode='POSE')
-            animate_by_fbx(character.pose.bones, fbxdata.pose.bones, frame, 
-                           name=name)
-            bpy.context.view_layer.update()
-            bpy.ops.object.mode_set(mode='OBJECT')
+            bones = character.pose.bones
+            animate_by_motive(param['params'][frame], bones, frame, offset, args.blender_type=='tpose')
+        if args.blender_type == 'video':
+            output_fn = f'{args.path}/rend_imgs/{args.id}/{frame:04d}.png'
+            bpy.context.scene.render.filepath = output_fn
+            bpy.ops.render.render(write_still=True, animation=False)
+        elif args.blender_type == 'img':
+            output_fn = f'{args.path}/rend_img/{args.id}/{frame:04d}.png'
+            bpy.context.scene.render.filepath = output_fn
+            bpy.ops.render.render(write_still=True, animation=False)
 
-
-    nFrames = bpy.context.scene.frame_end
-    camera = bpy.data.objects['Camera']
 
     # 创建一个地面用来制造阴影
     plane = create_plane_blender((7, 0, 0.0), size=15)
     plane.hide_viewport = True
     plane.is_shadow_catcher = True
 
-    
-
-    # if not args.debug and args.out is not None:
-    #     set_output_properties(bpy.context.scene, 
-    #         output_file_path=args.out,
-    #         res_x=args.res_x, res_y=args.res_y, 
-    #         tile_x=args.res_x, tile_y=args.res_y, resolution_percentage=100,
-    #         format='PNG')
-        
-    #     # bpy.ops.render.render(write_still=True, animation=True)
-    #     bpy.context.scene.frame_set(40)
-    #     bpy.ops.render.render(write_still=True, animation=False)

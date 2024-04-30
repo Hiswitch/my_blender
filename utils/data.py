@@ -34,30 +34,21 @@ import os
 #     return np.column_stack((w, x, y, z))
 
 def read_data(path, id):
+    filenames = sorted(glob(os.path.join(path, f'{id:03d}_*.npy')))
+    assert len(filenames) > 0, f"Cannot find the file with id: {id}"
+    filename = filenames[0]
 
-    filenames = sorted(glob(os.path.join(path, '*.npy')))
-    id = str(id).zfill(3)
-    filename = None
-    for item in filenames:
-        if id in item:
-            filename = item
-    
-    if filename == None:
-        print(f"There is no id: {id}")
-    else:
-        data = np.load(filename, allow_pickle=True).item()
+    data = np.load(filename, allow_pickle=True).item()
+    data_dict = {key: value for key, value in data.items()}
 
-        data_dict = {key: value for key, value in data.items()}
+    frame_num = len(data_dict['liu_position'])
 
-        params_1 = {'id': 0, 'rotation': data_dict['liu_rotation'], 'position': data_dict['liu_position']}
-        params_2 = {'id': 1, 'rotation': data_dict['ma_rotation'], 'position': data_dict['ma_position']}
+    params = []
+    params.append({'id': 0, 'params': [{'position': data_dict['liu_position'][frame], 'rotation': data_dict['liu_rotation'][frame]} for frame in range(0, frame_num, 4)]})
+    params.append({'id': 1, 'params': [{'position': data_dict['ma_position'][frame], 'rotation': data_dict['ma_rotation'][frame]} for frame in range(0, frame_num, 4)]})
+    # params_1 = {'id': 0, 'rotation': data_dict['liu_rotation'], 'position': data_dict['liu_position']}
+    # params_2 = {'id': 1, 'rotation': data_dict['ma_rotation'], 'position': data_dict['ma_position']}
+    frame_num = len(params[0]['params'])
 
-        params = [params_1, params_2]
+    return params, frame_num
 
-        return params
-
-
-
-# path = "D:\\blender_project\\begin\\fbx_export_joints_fixrot"
-
-# print(read_data(path, 1))
